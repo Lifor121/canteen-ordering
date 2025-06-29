@@ -1,51 +1,57 @@
 from rest_framework import serializers
 from .models import Dish, Order, OrderItem, User
 
+
 class DishSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dish
         fields = ('id', 'name', 'description', 'price', 'weight', 'photo', 'is_available')
 
 class OrderItemSerializer(serializers.ModelSerializer):
-    dish = DishSerializer(read_only=True) # Показываем полную информацию о блюде
+    dish_name = serializers.CharField(source='dish.name')
+    dish_price = serializers.DecimalField(source='dish.price', max_digits=8, decimal_places=2)
     
     class Meta:
         model = OrderItem
-        fields = ('id', 'dish', 'quantity')
+        fields = ('dish_name', 'dish_price', 'quantity')
 
 class OrderSerializer(serializers.ModelSerializer):
-    items = OrderItemSerializer(many=True, read_only=True) # Вложенные позиции заказа
-    user = serializers.StringRelatedField() # Показываем имя пользователя
-
-    class Meta:
-        model = Order
-        fields = ('id', 'user', 'status', 'created_at', 'total_price', 'items')
-
-# Сериализатор для создания заказа
-class OrderCreateSerializer(serializers.ModelSerializer):
-    # Клиент будет присылать список ID блюд и их количество
-    items = serializers.JSONField() 
+    items = OrderItemSerializer(many=True, read_only=True)
     
     class Meta:
         model = Order
-        fields = ('items',)
+        fields = ('id', 'status', 'created_at', 'total_price', 'items')
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    password2 = serializers.CharField(style={'input_type': 'password'}, write_only=True)
+
+    class Meta:
+        model = User
+        fields = ('username', 'password', 'password2')
+        extra_kwargs = {
+            'password': {'write_only': True}
+        }
+
+    def validate(self, data):
+        # Проверяем, что оба пароля совпадают
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({"password": "Пароли не совпадают."})
+        return data
 
     def create(self, validated_data):
-        items_data = validated_data.pop('items')
-        user = self.context['request'].user
-        
-        # Создаем заказ
-        order = Order.objects.create(user=user, status='new')
-        total_price = 0
+        # Создаем пользователя с помощью метода create_user, который хэширует пароль
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            password=validated_data['password'],
+            # Устанавливаем роль по умолчанию
+            role='student' 
+        )
+        return user
 
-        # Создаем позиции заказа
-        for item_data in items_data:
-            dish = Dish.objects.get(id=item_data['dish_id'])
-            quantity = item_data['quantity']
-            order_item = OrderItem.objects.create(order=order, dish=dish, quantity=quantity)
-            total_price += order_item.get_cost()
-            
-        order.total_price = total_price
-        order.status = 'paid' # Предполагаем, что оплата прошла
-        order.save()
-        return order
+class UserDetailSerializer(serializers.ModelSerializer):
+    # Вкладываем сериализатор заказов, чтобы получить список заказов пользователя
+    orders = OrderSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = User
+        fields = ('id', 'username', 'first_name', 'last_name', 'role', 'orders')
