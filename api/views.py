@@ -19,7 +19,8 @@ def set_jwt_cookies(response, user):
         value=str(refresh.access_token),
         httponly=True,
         secure=False, # В продакшене должно быть True
-        samesite='Lax'
+        samesite='Lax',
+        path='/'
     )
     return response
 
