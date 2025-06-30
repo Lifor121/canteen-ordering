@@ -23,28 +23,20 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = ('id', 'status', 'created_at', 'total_price', 'items')
 
 class UserCreateSerializer(serializers.ModelSerializer):
-    password2 = serializers.CharField(style={'input_type': 'password'}, write_only=True)
-
     class Meta:
         model = User
-        fields = ('username', 'password', 'password2')
+        fields = ('username', 'password')
         extra_kwargs = {
             'password': {'write_only': True}
         }
 
-    def validate(self, data):
-        # Проверяем, что оба пароля совпадают
-        if data['password'] != data['password2']:
-            raise serializers.ValidationError({"password": "Пароли не совпадают."})
-        return data
-
     def create(self, validated_data):
-        # Создаем пользователя с помощью метода create_user, который хэширует пароль
+        # Метод create_user автоматически хэширует пароль
         user = User.objects.create_user(
             username=validated_data['username'],
             password=validated_data['password'],
             # Устанавливаем роль по умолчанию
-            role='student' 
+            role='student'
         )
         return user
 

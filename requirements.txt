@@ -1,0 +1,17 @@
+# Ядро Django
+django
+
+# Для создания REST API
+djangorestframework
+
+# Адаптер для работы с базой данных PostgreSQL
+psycopg2-binary
+
+# Для обработки изображений (фотографии блюд)
+Pillow
+
+# Для аутентификации через JWT
+djangorestframework-simplejwt
+
+# Для настройки CORS (кросс-доменные запросы)
+django-cors-headers

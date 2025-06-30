@@ -14,12 +14,11 @@ from .authentication import JWTCookieAuthentication
 # Функция для установки cookie
 def set_jwt_cookies(response, user):
     refresh = RefreshToken.for_user(user)
-    # Устанавливаем access_token в HttpOnly cookie для безопасности
     response.set_cookie(
         key='access_token',
         value=str(refresh.access_token),
         httponly=True,
-        secure=False, # В продакшене должно быть True (требует HTTPS)
+        secure=False, # В продакшене должно быть True
         samesite='Lax'
     )
     return response
@@ -39,7 +38,6 @@ class CreateUserView(generics.CreateAPIView):
             {"message": "Пользователь успешно создан"},
             status=status.HTTP_201_CREATED
         )
-        # Устанавливаем cookie после успешного создания
         set_jwt_cookies(response, user)
         return response
 
