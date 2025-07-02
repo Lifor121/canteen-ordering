@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
+from django.db import transaction
 from decimal import Decimal
 
 from .models import User, Dish, Order, OrderItem, Canteen, CanteenDish
@@ -154,73 +155,84 @@ class SetOrderView(views.APIView):
     authentication_classes = [JWTCookieAuthentication]
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic # Оборачиваем весь метод в транзакцию
     def post(self, request, *args, **kwargs):
-        # 1. Получаем список заказанных позиций
         items_data = request.data.get('items')
-        
-        # 2. Валидация входных данных
-        if not isinstance(items_data, list) or not items_data:
+        canteen_id = request.data.get('canteen_id')
+
+        # 1. Валидация входных данных
+        if not all([isinstance(items_data, list), items_data, canteen_id]):
             return Response(
-                {"error": "Тело запроса должно содержать непустой список 'items'"},
+                {"error": "Тело запроса должно содержать 'items' и 'canteen_id'"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Собираем все ID блюд из запроса для одного запроса к БД
-        dish_ids = [item.get('dish_id') for item in items_data]
-
-        # 3. Получаем все запрошенные блюда из БД одним запросом
-        available_dishes = Dish.objects.filter(id__in=dish_ids, is_available=True)
         
-        # Создаем словарь для быстрого доступа к объектам блюд по их ID
-        dishes_map = {dish.id: dish for dish in available_dishes}
-
-        # 4. Проверяем, все ли блюда существуют и доступны
-        requested_ids_set = set(dish_ids)
-        found_ids_set = set(dishes_map.keys())
-
-        if requested_ids_set != found_ids_set:
-            missing_ids = requested_ids_set - found_ids_set
+        try:
+            canteen = Canteen.objects.get(id=canteen_id, is_open=True)
+        except Canteen.DoesNotExist:
             return Response(
-                {"error": f"Блюда с ID {list(missing_ids)} не найдены или недоступны"},
+                {"error": f"Столовая с ID {canteen_id} не найдена или закрыта"},
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # 5. Создаем заказ и его позиции
-        order = Order.objects.create(user=request.user, status='new')
+        dish_ids = [item.get('dish_id') for item in items_data]
+        
+        # 2. Получаем остатки по нужным блюдам в данной столовой одним запросом
+        # select_for_update() блокирует строки до конца транзакции, чтобы избежать гонки заказов
+        canteen_dishes = CanteenDish.objects.filter(
+            canteen=canteen,
+            dish_id__in=dish_ids
+        ).select_for_update()
+
+        canteen_dishes_map = {cd.dish_id: cd for cd in canteen_dishes}
+
+        # 3. Проверяем наличие и достаточное количество
+        for item_data in items_data:
+            dish_id = item_data.get('dish_id')
+            quantity = item_data.get('quantity', 1)
+
+            if not isinstance(dish_id, int) or not isinstance(quantity, int) or quantity <= 0:
+                 return Response({"error": f"Некорректные данные для позиции: {item_data}"}, status=status.HTTP_400_BAD_REQUEST)
+
+            if dish_id not in canteen_dishes_map:
+                return Response({"error": f"Блюдо с ID {dish_id} не найдено в этой столовой"}, status=status.HTTP_404_NOT_FOUND)
+            
+            canteen_dish = canteen_dishes_map[dish_id]
+            if canteen_dish.quantity < quantity:
+                return Response({"error": f"Недостаточное количество блюда '{canteen_dish.dish.name}'. Доступно: {canteen_dish.quantity}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 4. Создаем заказ
+        order = Order.objects.create(
+            user=request.user, 
+            canteen=canteen, 
+            status='new'
+        )
         total_price = Decimal('0.0')
 
         order_items_to_create = []
         for item_data in items_data:
-            dish_id = item_data.get('dish_id')
-            quantity = item_data.get('quantity', 1) # По умолчанию 1, если не указано
-            
-            # Проверяем корректность данных
-            if not isinstance(dish_id, int) or not isinstance(quantity, int) or quantity <= 0:
-                order.delete()
-                return Response(
-                    {"error": f"Некорректные данные для позиции: {item_data}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            dish_id = item_data['dish_id']
+            quantity = item_data['quantity']
+            canteen_dish = canteen_dishes_map[dish_id]
 
-            # Получаем объект блюда из нашего словаря
-            dish = dishes_map[dish_id]
+            # Уменьшаем количество на складе
+            canteen_dish.quantity -= quantity
             
-            # Добавляем позицию заказа в список для массового создания
+            # Добавляем позицию заказа
             order_items_to_create.append(
-                OrderItem(order=order, dish=dish, quantity=quantity)
+                OrderItem(order=order, dish=canteen_dish.dish, quantity=quantity)
             )
-            # Считаем итоговую стоимость
-            total_price += dish.price * quantity
-        
-        # 6. Массово создаем все позиции заказа одним запросом к БД
+            total_price += canteen_dish.dish.price * quantity
+
+        # 5. Массово обновляем остатки и создаем позиции заказа
+        CanteenDish.objects.bulk_update(canteen_dishes_map.values(), ['quantity'])
         OrderItem.objects.bulk_create(order_items_to_create)
 
-        # Обновляем итоговую стоимость и статус заказа
+        # 6. Сохраняем итоговую стоимость и статус
         order.total_price = total_price
         order.status = 'paid'  # Симуляция успешной оплаты
         order.save()
-        
-        # Сериализуем созданный заказ для ответа
+
         serializer = OrderSerializer(order)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
