@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Dish, Order, OrderItem, User
+import re
 
 
 class DishSerializer(serializers.ModelSerializer):
@@ -41,9 +42,21 @@ class UserCreateSerializer(serializers.ModelSerializer):
         return user
 
 class UserDetailSerializer(serializers.ModelSerializer):
-    # Вкладываем сериализатор заказов, чтобы получить список заказов пользователя
     orders = OrderSerializer(many=True, read_only=True)
 
     class Meta:
         model = User
         fields = ('id', 'username', 'first_name', 'last_name', 'role', 'orders')
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ('username', 'first_name', 'last_name')
+
+    def validate(self, data):
+        for field, value in data.items():
+            if value and re.search(r'\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b', value, re.IGNORECASE):
+                raise serializers.ValidationError(
+                    f"Поле '{field}' должно содержать корректные данные."
+                )
+        return data

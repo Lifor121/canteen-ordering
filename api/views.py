@@ -7,7 +7,8 @@ from decimal import Decimal
 
 from .models import User, Dish, Order, OrderItem
 from .serializers import (
-    UserCreateSerializer, UserDetailSerializer, DishSerializer
+    UserCreateSerializer, UserDetailSerializer, DishSerializer, 
+    UserUpdateSerializer, OrderSerializer 
 )
 from .authentication import JWTCookieAuthentication
 
@@ -73,6 +74,21 @@ class GetUserInfoView(views.APIView):
         user = request.user
         serializer = UserDetailSerializer(user)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+# 3.1 update_user
+class UpdateUserView(generics.UpdateAPIView):
+    serializer_class = UserUpdateSerializer
+    authentication_classes = [JWTCookieAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        # Используем метод update из родительского класса, он обработает валидацию и сохранение
+        response = super().update(request, *args, **kwargs)
+        response.data = {"message": "Данные пользователя успешно обновлены."}
+        return response
 
 # 4. get_dish_info/id
 class GetDishInfoView(generics.RetrieveAPIView):
@@ -158,10 +174,9 @@ class SetOrderView(views.APIView):
         order.status = 'paid'  # Симуляция успешной оплаты
         order.save()
         
-        return Response(
-            {"message": "Заказ успешно создан", "order_id": order.id},
-            status=status.HTTP_201_CREATED
-        )
+        # Сериализуем созданный заказ для ответа
+        serializer = OrderSerializer(order)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 # API для выхода (удаление cookie)
 class LogoutView(views.APIView):
