@@ -7,10 +7,11 @@ from django.db import transaction
 from decimal import Decimal
 
 from .models import User, Dish, Order, OrderItem, Canteen, CanteenDish
+from .permissions import IsCanteenWorker
 from .serializers import (
     UserCreateSerializer, UserDetailSerializer, DishSerializer, 
-    UserUpdateSerializer, OrderSerializer,
-    CanteenSerializer, CanteenMenuSerializer
+    UserUpdateSerializer, OrderSerializer, CanteenSerializer, 
+    CanteenMenuSerializer, OrderStatusUpdateSerializer
 )
 from .authentication import JWTCookieAuthentication
 
@@ -242,3 +243,32 @@ class LogoutView(views.APIView):
         response = Response({"message": "Выход выполнен успешно"}, status=status.HTTP_200_OK)
         response.delete_cookie('access_token')
         return response
+    
+class WorkerOrderListView(generics.ListAPIView):
+    """
+    Возвращает список заказов для столовой, к которой привязан работник.
+    """
+    serializer_class = OrderSerializer
+    authentication_classes = [JWTCookieAuthentication]
+    permission_classes = [IsCanteenWorker]
+
+    def get_queryset(self):
+        user = self.request.user
+        # Фильтруем заказы по столовой текущего работника
+        return Order.objects.filter(canteen=user.canteen).prefetch_related('items__dish')
+
+class WorkerOrderUpdateStatusView(generics.UpdateAPIView):
+    """
+    Обновляет статус заказа. Доступно только работнику той же столовой.
+    """
+    serializer_class = OrderStatusUpdateSerializer
+    authentication_classes = [JWTCookieAuthentication]
+    permission_classes = [IsCanteenWorker]
+    http_method_names = ['patch']
+
+    def get_queryset(self):
+        user = self.request.user
+        return Order.objects.filter(canteen=user.canteen)
+
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)

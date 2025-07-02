@@ -58,7 +58,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'first_name', 'last_name', 'role', 'orders')
+        fields = ('id', 'username', 'first_name', 'last_name', 'role', 'canteen', 'orders')
 
 class UserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -72,3 +72,14 @@ class UserUpdateSerializer(serializers.ModelSerializer):
                     f"Поле '{field}' должно содержать корректные данные."
                 )
         return data
+    
+class OrderStatusUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Order
+        fields = ['status']
+    
+    def validate_status(self, value):
+        # Работник может менять статус только на 'ready' или 'closed'
+        if value not in ['ready', 'closed']:
+            raise serializers.ValidationError("Недопустимый статус. Доступные статусы: 'ready', 'closed'.")
+        return value

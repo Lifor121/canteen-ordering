@@ -11,6 +11,8 @@ from .views import (
     #GetDishesInfoView,
     SetOrderView,
     LogoutView,
+    WorkerOrderListView,
+    WorkerOrderUpdateStatusView
 )
 
 urlpatterns = [
@@ -23,6 +25,8 @@ urlpatterns = [
     #path('get_dishes_info', GetDishesInfoView.as_view(), name='get_dishes_info'),
     path('canteens', CanteenListView.as_view(), name='canteen-list'),
     path('canteens/<int:canteen_id>/menu', CanteenMenuView.as_view(), name='canteen-menu'),
-    path('canteens/<int:canteen_id>/menu/<int:dish_id>/', CanteenMenuDetailView.as_view(), name='canteen-menu-detail'),
+    path('canteens/<int:canteen_id>/menu/<int:dish_id>', CanteenMenuDetailView.as_view(), name='canteen-menu-detail'),
     path('set_order', SetOrderView.as_view(), name='set_order'),
+    path('worker/orders', WorkerOrderListView.as_view(), name='worker-order-list'),
+    path('worker/orders/<int:pk>/update-status', WorkerOrderUpdateStatusView.as_view(), name='worker-order-update'),
 ]
