@@ -1,23 +1,28 @@
 from django.contrib import admin
-from .models import User, Dish, Order, OrderItem
+from .models import User, Dish, Order, OrderItem, Canteen, CanteenDish
+
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     raw_id_fields = ['dish']
     extra = 1 # Количество пустых форм для добавления
 
-@admin.register(Order)
-class OrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'status', 'created_at', 'total_price')
-    list_filter = ('status', 'created_at')
-    search_fields = ('user__username', 'id')
-    inlines = [OrderItemInline]
+class CanteenDishInline(admin.TabularInline):
+    model = CanteenDish
+    extra = 1
 
 @admin.register(Dish)
 class DishAdmin(admin.ModelAdmin):
-    list_display = ('name', 'price', 'weight', 'is_available')
-    list_filter = ('is_available',)
+    list_display = ('name', 'price', 'weight')
     search_fields = ('name',)
+    inlines = [CanteenDishInline]
+
+@admin.register(Canteen)
+class CanteenAdmin(admin.ModelAdmin):
+    list_display = ('name', 'address', 'is_open')
+    list_filter = ('is_open',)
+    inlines = [CanteenDishInline]
 
 admin.site.register(User)
 admin.site.register(OrderItem)
+admin.site.register(CanteenDish)

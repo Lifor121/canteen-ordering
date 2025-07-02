@@ -1,7 +1,19 @@
 from rest_framework import serializers
-from .models import Dish, Order, OrderItem, User
+from .models import Dish, Order, OrderItem, User, Canteen, CanteenDish
 import re
 
+class CanteenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Canteen
+        fields = ('id', 'name', 'address', 'is_open')
+
+class CanteenMenuSerializer(serializers.ModelSerializer):
+    # Добавляем поле, которого нет в модели, но которое мы вычислим во view
+    available_quantity = serializers.IntegerField()
+
+    class Meta:
+        model = Dish
+        fields = ('id', 'name', 'description', 'price', 'weight', 'photo', 'available_quantity')
 
 class DishSerializer(serializers.ModelSerializer):
     class Meta:

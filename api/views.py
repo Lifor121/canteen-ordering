@@ -5,10 +5,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from decimal import Decimal
 
-from .models import User, Dish, Order, OrderItem
+from .models import User, Dish, Order, OrderItem, Canteen, CanteenDish
 from .serializers import (
     UserCreateSerializer, UserDetailSerializer, DishSerializer, 
-    UserUpdateSerializer, OrderSerializer 
+    UserUpdateSerializer, OrderSerializer,
+    CanteenSerializer, CanteenMenuSerializer
 )
 from .authentication import JWTCookieAuthentication
 
@@ -91,17 +92,62 @@ class UpdateUserView(generics.UpdateAPIView):
         return response
 
 # 4. get_dish_info/id
-class GetDishInfoView(generics.RetrieveAPIView):
-    queryset = Dish.objects.filter(is_available=True)
-    serializer_class = DishSerializer
-    permission_classes = [AllowAny]
-    lookup_field = 'id' # Указываем, что в URL будет id
+#class GetDishInfoView(generics.RetrieveAPIView):
+#    queryset = Dish.objects.filter(is_available=True)
+#    serializer_class = DishSerializer
+#    permission_classes = [AllowAny]
+#    lookup_field = 'id' # Указываем, что в URL будет id
 
 # 5. get_dishes_info
-class GetDishesInfoView(generics.ListAPIView):
-    queryset = Dish.objects.filter(is_available=True)
-    serializer_class = DishSerializer
+#class GetDishesInfoView(generics.ListAPIView):
+#    queryset = Dish.objects.filter(is_available=True)
+#    serializer_class = DishSerializer
+#    permission_classes = [AllowAny]
+
+class CanteenListView(generics.ListAPIView):
+    queryset = Canteen.objects.all()
+    serializer_class = CanteenSerializer
     permission_classes = [AllowAny]
+
+class CanteenMenuView(generics.ListAPIView):
+    serializer_class = CanteenMenuSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        canteen_id = self.kwargs.get('canteen_id')
+        canteen_dishes = CanteenDish.objects.filter(
+            canteen_id=canteen_id, 
+            quantity__gt=0
+        ).select_related('dish')
+
+        dishes = []
+        for cd in canteen_dishes:
+            dish = cd.dish
+            dish.available_quantity = cd.quantity 
+            dishes.append(dish)
+        
+        return dishes
+
+class CanteenMenuDetailView(generics.GenericAPIView):
+    serializer_class = CanteenMenuSerializer
+    permission_classes = [AllowAny]
+
+    def get(self, request, canteen_id, dish_id):
+        try:
+            # Ищем конкретную запись об остатках для пары столовая-блюдо
+            canteen_dish = CanteenDish.objects.select_related('dish').get(
+                canteen_id=canteen_id,
+                dish_id=dish_id
+            )
+        except CanteenDish.DoesNotExist:
+            return Response({"error": "Блюдо не найдено в этой столовой"}, status=status.HTTP_404_NOT_FOUND)
+
+        # "Прикрепляем" количество к объекту блюда для сериализатора
+        dish = canteen_dish.dish
+        dish.available_quantity = canteen_dish.quantity
+
+        serializer = self.get_serializer(dish)
+        return Response(serializer.data)
 
 # 6. set_order
 class SetOrderView(views.APIView):
