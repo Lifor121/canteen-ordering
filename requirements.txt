@@ -15,3 +15,6 @@ djangorestframework-simplejwt
 
 # Для настройки CORS (кросс-доменные запросы)
 django-cors-headers
+
+# Для переменных файла .env
+python-dotenv

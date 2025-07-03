@@ -59,9 +59,15 @@ class Order(models.Model):
         ('ready', 'Готов к выдаче'),
         ('closed', 'Закрыт'),
     )
+    PREPARATION_TYPE_CHOICES = (
+        ('asap', 'Как можно скорее'),
+        ('scheduled', 'Ко времени'),
+    )
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders', verbose_name="Пользователь")
     canteen = models.ForeignKey(Canteen, on_delete=models.PROTECT, null=True, related_name='orders', verbose_name="Столовая")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='new', verbose_name="Статус")
+    preparation_type = models.CharField(max_length=10, choices=PREPARATION_TYPE_CHOICES, default='asap', verbose_name="Тип приготовления")
+    preparation_time = models.DateTimeField(null=True, blank=True, verbose_name="Время приготовления")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Время создания")
     total_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, verbose_name="Итоговая цена")
 

@@ -11,7 +11,7 @@ from .permissions import IsCanteenWorker
 from .serializers import (
     UserCreateSerializer, UserDetailSerializer, DishSerializer, 
     UserUpdateSerializer, OrderSerializer, CanteenSerializer, 
-    CanteenMenuSerializer, OrderStatusUpdateSerializer
+    CanteenMenuSerializer, OrderStatusUpdateSerializer, OrderCreateSerializer
 )
 from .authentication import JWTCookieAuthentication
 
@@ -156,17 +156,14 @@ class SetOrderView(views.APIView):
     authentication_classes = [JWTCookieAuthentication]
     permission_classes = [IsAuthenticated]
 
-    @transaction.atomic # Оборачиваем весь метод в транзакцию
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
-        items_data = request.data.get('items')
         canteen_id = request.data.get('canteen_id')
+        serializer = OrderCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
 
-        # 1. Валидация входных данных
-        if not all([isinstance(items_data, list), items_data, canteen_id]):
-            return Response(
-                {"error": "Тело запроса должно содержать 'items' и 'canteen_id'"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        items_data = validated_data.get('items', [])
         
         try:
             canteen = Canteen.objects.get(id=canteen_id, is_open=True)
@@ -176,10 +173,11 @@ class SetOrderView(views.APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        if not items_data:
+            return Response({"error": "Список 'items' не может быть пустым"}, status=status.HTTP_400_BAD_REQUEST)
+
         dish_ids = [item.get('dish_id') for item in items_data]
         
-        # 2. Получаем остатки по нужным блюдам в данной столовой одним запросом
-        # select_for_update() блокирует строки до конца транзакции, чтобы избежать гонки заказов
         canteen_dishes = CanteenDish.objects.filter(
             canteen=canteen,
             dish_id__in=dish_ids
@@ -187,7 +185,6 @@ class SetOrderView(views.APIView):
 
         canteen_dishes_map = {cd.dish_id: cd for cd in canteen_dishes}
 
-        # 3. Проверяем наличие и достаточное количество
         for item_data in items_data:
             dish_id = item_data.get('dish_id')
             quantity = item_data.get('quantity', 1)
@@ -202,11 +199,12 @@ class SetOrderView(views.APIView):
             if canteen_dish.quantity < quantity:
                 return Response({"error": f"Недостаточное количество блюда '{canteen_dish.dish.name}'. Доступно: {canteen_dish.quantity}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 4. Создаем заказ
         order = Order.objects.create(
             user=request.user, 
             canteen=canteen, 
-            status='new'
+            status='new',
+            preparation_type=validated_data.get('preparation_type', 'asap'),
+            preparation_time=validated_data.get('preparation_time')
         )
         total_price = Decimal('0.0')
 
@@ -216,26 +214,22 @@ class SetOrderView(views.APIView):
             quantity = item_data['quantity']
             canteen_dish = canteen_dishes_map[dish_id]
 
-            # Уменьшаем количество на складе
             canteen_dish.quantity -= quantity
             
-            # Добавляем позицию заказа
             order_items_to_create.append(
                 OrderItem(order=order, dish=canteen_dish.dish, quantity=quantity)
             )
             total_price += canteen_dish.dish.price * quantity
 
-        # 5. Массово обновляем остатки и создаем позиции заказа
         CanteenDish.objects.bulk_update(canteen_dishes_map.values(), ['quantity'])
         OrderItem.objects.bulk_create(order_items_to_create)
 
-        # 6. Сохраняем итоговую стоимость и статус
         order.total_price = total_price
-        order.status = 'paid'  # Симуляция успешной оплаты
+        order.status = 'paid'
         order.save()
 
-        serializer = OrderSerializer(order)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        response_serializer = OrderSerializer(order)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 # API для выхода (удаление cookie)
 class LogoutView(views.APIView):
@@ -245,22 +239,28 @@ class LogoutView(views.APIView):
         return response
     
 class WorkerOrderListView(generics.ListAPIView):
-    """
-    Возвращает список заказов для столовой, к которой привязан работник.
-    """
     serializer_class = OrderSerializer
     authentication_classes = [JWTCookieAuthentication]
     permission_classes = [IsCanteenWorker]
 
     def get_queryset(self):
         user = self.request.user
-        # Фильтруем заказы по столовой текущего работника
-        return Order.objects.filter(canteen=user.canteen).prefetch_related('items__dish')
+        queryset = Order.objects.filter(
+            canteen=user.canteen, 
+            status__in=['paid', 'new']
+        ).prefetch_related('items__dish')
+
+        # Сортируем: 'asap' заказы получают приоритет (0), 'scheduled' - (1)
+        # Затем сортируем по времени создания для 'asap' и по времени готовки для 'scheduled'
+        return sorted(
+            queryset, 
+            key=lambda order: (
+                0 if order.preparation_type == 'asap' else 1,
+                order.preparation_time if order.preparation_type == 'scheduled' and order.preparation_time else order.created_at
+            )
+        )
 
 class WorkerOrderUpdateStatusView(generics.UpdateAPIView):
-    """
-    Обновляет статус заказа. Доступно только работнику той же столовой.
-    """
     serializer_class = OrderStatusUpdateSerializer
     authentication_classes = [JWTCookieAuthentication]
     permission_classes = [IsCanteenWorker]

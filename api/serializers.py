@@ -21,19 +21,34 @@ class DishSerializer(serializers.ModelSerializer):
         fields = ('id', 'name', 'description', 'price', 'weight', 'photo', 'is_available')
 
 class OrderItemSerializer(serializers.ModelSerializer):
-    dish_name = serializers.CharField(source='dish.name')
-    dish_price = serializers.DecimalField(source='dish.price', max_digits=8, decimal_places=2)
+    dish_id = serializers.IntegerField(write_only=True)
+    dish_name = serializers.CharField(source='dish.name', read_only=True)
+    dish_price = serializers.DecimalField(source='dish.price', max_digits=8, decimal_places=2, read_only=True)
     
     class Meta:
         model = OrderItem
-        fields = ('dish_name', 'dish_price', 'quantity')
+        fields = ('dish_id', 'dish_name', 'dish_price', 'quantity')
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     
     class Meta:
         model = Order
-        fields = ('id', 'status', 'created_at', 'total_price', 'items')
+        fields = ('id', 'status', 'created_at', 'total_price', 'items', 'preparation_type', 'preparation_time')
+
+class OrderCreateSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True)
+    canteen_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = Order
+        fields = ('canteen_id', 'items', 'preparation_type', 'preparation_time')
+
+    def validate(self, data):
+        if data.get('preparation_type') == 'scheduled' and not data.get('preparation_time'):
+            raise serializers.ValidationError("Для заказов 'ко времени' необходимо указать 'preparation_time'.")
+        return data
+
 
 class UserCreateSerializer(serializers.ModelSerializer):
     class Meta:
